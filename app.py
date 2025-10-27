@@ -85,7 +85,7 @@ def get_client():
     try:
         if os.path.exists("service_account.json"):
             # chạy local (trên máy tính)
-            # st.info("🖥️ Dùng service_account.json (local)")
+            
             return gspread.service_account(filename="service_account.json", scopes=SCOPES)
 
         elif "google_service_account" in st.secrets:
