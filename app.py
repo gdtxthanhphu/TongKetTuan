@@ -85,7 +85,7 @@ def get_client():
     try:
         if os.path.exists("service_account.json"):
             # chạy local (trên máy tính)
-            st.info("🖥️ Dùng service_account.json (local)")
+            # st.info("🖥️ Dùng service_account.json (local)")
             return gspread.service_account(filename="service_account.json", scopes=SCOPES)
 
         elif "google_service_account" in st.secrets:
@@ -178,41 +178,160 @@ def parse_score(ws):
 # =========================
 def save_score_reordered(ws, df, original_header, core_cols, vesinh_col):
     """
-    Ghi DataFrame về tab Score theo thứ tự:
-    Ngày nhập | Tên Tài Khoản | Tuần | Lớp | Vệ sinh chưa tốt | (các cột trong ITEMS theo thứ tự) | (cột dư nếu có)
+    ✅ Ghi DataFrame về Google Sheet với thứ tự cột cố định & tự tạo header nếu sheet trống.
     """
-    # Cột lõi bắt buộc
-    preferred = [c for c in core_cols if c and c in df.columns]
+    # ====== CỘT CỐ ĐỊNH MẶC ĐỊNH ======
+    base_headers = ["Ngày nhập", "Tên Tài Khoản", "Tuần", "Lớp"]
 
-    # Nếu có cột "Vệ sinh chưa tốt", thêm vào sau cột lõi
-    if vesinh_col and vesinh_col in df.columns and vesinh_col not in preferred:
-        preferred.append(vesinh_col)
+    # ====== Danh sách cột theo ITEMS (điểm, vi phạm, thưởng, v.v.) ======
+    item_headers = [label for _, label, _, _ in ITEMS]
 
-    # === Sắp cột theo logic ITEMS (theo thứ tự bạn định nghĩa trong ITEMS list) ===
-    item_cols = []
-    for key, label, _, _ in ITEMS:
-        if label in df.columns:
-            item_cols.append(label)
-        elif key in df.columns:
-            item_cols.append(key)
-    item_cols = [c for c in item_cols if c not in preferred]
+    # ====== Cột tổng điểm ======
+    total_headers = ["Tổng điểm"]
 
-    # Các cột còn lại (phụ / thêm sau)
-    extras = [c for c in df.columns if c not in preferred and c not in item_cols]
+    # ====== Nếu sheet trống hoặc không có header, tạo header mới ======
+    if df.empty or len(df.columns) == 0:
+        st.warning("⚠️ Sheet 'Score' trống — đang tự tạo tiêu đề chuẩn.")
+        all_headers = base_headers + item_headers + total_headers
+        ws.clear()
+        ws.update([all_headers])
+        return
 
-    # Hợp lại danh sách cột cuối cùng
-    final_header = preferred + item_cols + extras
+    # ====== Chuẩn hóa tên cột trong df để khớp với header chuẩn ======
+    normalized_cols = {N(col): col for col in df.columns}
 
-    # === Ghi vào Google Sheet ===
+    def find_col(name):
+        nname = N(name)
+        return normalized_cols.get(nname, name)
+
+    # ====== Dò cột lõi trong df (nếu thiếu thì thêm vào) ======
+    for col in base_headers + item_headers + total_headers:
+        if col not in df.columns:
+            df[col] = ""
+
+    # ====== Xác định lại thứ tự cột ======
+    final_header = [find_col(c) for c in base_headers] + \
+                   [find_col(c) for c in item_headers] + \
+                   [find_col(c) for c in total_headers]
+
+    # ====== Ghi dữ liệu theo thứ tự chuẩn ======
     ws.clear()
     data = [final_header] + df.reindex(columns=final_header).astype(str).values.tolist()
     ws.update(data, value_input_option="USER_ENTERED")
 
+    st.success("✅ Đã lưu dữ liệu và tự động sắp xếp cột đúng thứ tự.")
 
 # =========================
 # UI
 # =========================
 st.set_page_config(page_title="Tổng Kết Tuần", page_icon="🧮", layout="wide")
+# CSS riêng cho từng chế độ (login / main app)
+if not st.session_state.get("logged_in", False):
+    # ------------------------
+    # 🧩 Giao diện đăng nhập
+    # ------------------------
+    st.markdown("""
+        <style>
+        section.main > div.block-container {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            padding-top: 0 !important;
+        }
+
+        .block-container {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        /* 🧮 Tiêu đề ứng dụng */
+        .app-title {
+            text-align: center !important;
+            font-size: 30px !important;
+            font-weight: 800 !important;
+            margin-bottom: 25px;
+            color: white !important;
+            display: block;
+            width: 100vw;
+            white-space: nowrap;
+            overflow: hidden;
+            position: relative;
+            left: calc(50% - 50vw);
+        }
+
+        /* 🔐 Tiêu đề phụ */
+        h2, h3 {
+            text-align: center !important;
+            font-size: 22px !important;
+            font-weight: 700 !important;
+            margin-bottom: 10px;
+        }
+
+        /* ✏️ Ô nhập và nhãn */
+        label {
+            font-size: 22px !important;
+            font-weight: 600 !important;
+            color: #e6e6e6 !important;
+        }
+
+        input, textarea, select {
+            font-size: 20px !important;
+            border-radius: 8px !important;
+            padding: 10px !important;
+        }
+
+        /* 🎯 Nút đăng nhập lệch nhẹ */
+        div.stButton {
+            text-align: center;
+            margin-top: 15px;
+        }
+
+        div.stButton > button {
+            display: inline-block;
+            width: 200px;
+            font-size: 18px !important;
+            border-radius: 8px !important;
+            margin-left: 80px;
+        }
+
+        div.stButton > button:hover {
+            background-color: #4CAF50 !important;
+            color: white !important;
+            transform: scale(1.05);
+        }
+        </style>
+    """, unsafe_allow_html=True)
+else:
+    # ------------------------
+    # 🌟 Giao diện chính sau đăng nhập
+    # ------------------------
+    st.markdown("""
+        <style>
+        /* Cho phép phần nội dung chính hiển thị toàn màn hình */
+        .block-container {
+            max-width: 95% !important;
+            padding-left: 3% !important;
+            padding-right: 3% !important;
+        }
+
+        /* Tăng kích thước bảng dữ liệu */
+        div[data-testid="stDataFrame"] table {
+            font-size: 18px !important;
+        }
+
+        /* Cố định cột đầu */
+        div[data-testid="stDataFrame"] thead tr th:nth-child(-n+4),
+        div[data-testid="stDataFrame"] tbody tr td:nth-child(-n+4) {
+            position: sticky;
+            left: 0;
+            background-color: white;
+            z-index: 3;
+        }
+
+        </style>
+    """, unsafe_allow_html=True)
 
 # =========================
 # GIAO DIỆN: PHÓNG TO CHỮ & CỐ ĐỊNH CỘT
@@ -250,7 +369,9 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🧮 ỨNG DỤNG TỔNG KẾT TUẦN")
+# =======================
+# 
+
 
 gc = get_client()
 acc_ws, score_ws = open_sheets(gc)
@@ -259,27 +380,39 @@ score_df, score_header, cmap = parse_score(score_ws)
 
 # ---- LOGIN ----
 if "logged_in" not in st.session_state:
-    st.session_state.update({"logged_in": False, "role": None, "username": None, "class_name": None, "teacher_name": None})
+    st.session_state.update({
+        "logged_in": False,
+        "role": None,
+        "username": None,
+        "class_name": None,
+        "teacher_name": None
+    })
 
 if not st.session_state.logged_in:
-    st.subheader("🔐 Đăng nhập")
+    # ---------------- Giao diện đăng nhập ----------------
+    st.subheader("Đăng nhập")
     u = st.text_input("Tên đăng nhập")
     p = st.text_input("Mật khẩu", type="password")
+
     if st.button("Đăng nhập"):
         if acc_df.empty:
             st.error("Không có dữ liệu tài khoản.")
             st.stop()
-        row = acc_df[acc_df["Username"] == u] if "Username" in acc_df.columns else acc_df[acc_df.iloc[:,0] == u]
+
+        # Kiểm tra thông tin đăng nhập
+        row = acc_df[acc_df["Username"] == u] if "Username" in acc_df.columns else acc_df[acc_df.iloc[:, 0] == u]
+
         if not row.empty:
             stored_pw = str(row.iloc[0].get("Password", ""))
             ok = hashlib.sha256(p.encode()).hexdigest() == stored_pw if USE_HASHED_PASSWORDS else (p == stored_pw)
+
             if ok:
                 st.session_state.update({
                     "logged_in": True,
                     "username": u,
-                    "role": str(row.iloc[0].get("Quyen","User")).strip(),
+                    "role": str(row.iloc[0].get("Quyen", "User")).strip(),
                     "class_name": str(row.iloc[0].get("LopPhuTrach", "")),
-                    "teacher_name": str(row.iloc[0].get("TenGiaoVien","")),
+                    "teacher_name": str(row.iloc[0].get("TenGiaoVien", "")),
                 })
                 st.success(f"Xin chào {st.session_state.teacher_name or u} 👋")
                 st.rerun()
@@ -288,6 +421,35 @@ if not st.session_state.logged_in:
         else:
             st.error("Không tìm thấy tài khoản.")
     st.stop()
+
+else:
+    # ---------------- Giao diện sau đăng nhập ----------------
+    st.markdown("""
+        <style>
+        .main-title-container {
+            text-align: center !important;
+            margin-top: 20px;
+            margin-bottom: 35px;
+        }
+        .main-title-container h2 {
+            color: #FFD700;
+            font-size: 22px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .main-title-container h1 {
+            color: white;
+            font-size: 42px;
+            font-weight: 900;
+            margin: 0;
+        }
+        </style>
+
+        <div class="main-title-container">
+            <h2>TRUNG TÂM GDNN - GDTX THẠNH PHÚ</h2>
+            <h1>ỨNG DỤNG TỔNG KẾT TUẦN</h1>
+        </div>
+    """, unsafe_allow_html=True)
 
 # ---- MAIN ----
 role = st.session_state.role
@@ -353,7 +515,7 @@ if role.lower() == "user":
 elif role.lower() == "admin":
     st.subheader("📋 Dữ liệu (Admin)")
     edited = st.data_editor(score_df, use_container_width=True, num_rows="dynamic", hide_index=True)
-    if st.button("💾 Lưu thay đổi vào Google Sheet"):
+    if st.button("💾 Lưu thay đổi"):
         save_score_reordered(score_ws, edited, score_header, [TIME_COL, USER_COL, WEEK_COL, CLASS_COL], item_colmap.get("vesinhxaut"))
         st.success("✅ Đã lưu thay đổi.")
         st.rerun()
