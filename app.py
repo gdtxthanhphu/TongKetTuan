@@ -69,29 +69,69 @@ ITEMS = [
 TOTAL_HEADER_CANDIDATES = ["tong diem","tongdiem","tổng điểm"]
 
 # =========================
-# KẾT NỐI GOOGLE SHEETS
 # =========================
+# KẾT NỐI GOOGLE SHEETS (TỰ PHÁT HIỆN LOCAL / CLOUD)
+# =========================
+import os, json
+from google.oauth2.service_account import Credentials
+
 @st.cache_resource(show_spinner=False)
 def get_client():
+    """
+    Tự động xác định môi trường:
+      - Nếu chạy local: dùng file service_account.json
+      - Nếu chạy trên Streamlit Cloud: đọc từ st.secrets["google_service_account"]
+    """
     try:
-        return gspread.service_account(filename=SERVICE_FILE, scopes=SCOPES)
+        if os.path.exists("service_account.json"):
+            # chạy local (trên máy tính)
+            st.info("🖥️ Dùng service_account.json (local)")
+            return gspread.service_account(filename="service_account.json", scopes=SCOPES)
+
+        elif "google_service_account" in st.secrets:
+            # chạy trên Streamlit Cloud
+            st.info("☁️ Dùng Service Account trong st.secrets")
+            service_info = st.secrets["google_service_account"]
+            credentials = Credentials.from_service_account_info(service_info, scopes=SCOPES)
+            return gspread.authorize(credentials)
+
+        else:
+            st.error("❌ Không tìm thấy thông tin xác thực Google (service account).")
+            st.stop()
+
     except Exception as e:
-        st.error(f"Lỗi khi tải service account: {e}")
+        st.error(f"⚠️ Lỗi khi tạo client Google Sheets: {e}")
         st.stop()
 
+
 def open_sheets(gc):
+    """
+    Mở Google Sheet và kiểm tra quyền truy cập.
+    """
     try:
         sh = gc.open_by_key(SPREADSHEET_ID)
-        return sh.worksheet("TaiKhoan"), sh.worksheet("Score")
-    except Exception as e:
-        st.error(f"Không thể mở Google Sheet. Kiểm tra quyền truy cập.\n{e}")
+        acc = sh.worksheet("TaiKhoan")
+        score = sh.worksheet("Score")
+        return acc, score
+    except gspread.exceptions.APIError:
+        st.error("🚫 Không thể mở Google Sheet. Hãy kiểm tra quyền chia sẻ:")
+        st.info("""
+        1️⃣ Mở Google Sheet  
+        2️⃣ Nhấn Share → Dán email trong service_account.json (`client_email`)  
+        3️⃣ Cấp quyền **Editor (Người chỉnh sửa)**  
+        """)
         st.stop()
+    except Exception as e:
+        st.error(f"⚠️ Lỗi không xác định khi mở Google Sheet: {e}")
+        st.stop()
+
 
 def load_accounts(ws):
     df = pd.DataFrame(ws.get_all_records())
     if df.empty:
         st.warning("⚠️ Sheet 'TaiKhoan' trống. Hãy thêm tài khoản trước.")
     return df
+
 
 def parse_score(ws):
     vals = ws.get_all_values()
@@ -151,9 +191,10 @@ def save_score_reordered(ws, df, original_header, core_cols, vesinh_col):
     # === Sắp cột theo logic ITEMS (theo thứ tự bạn định nghĩa trong ITEMS list) ===
     item_cols = []
     for key, label, _, _ in ITEMS:
-        # Nếu tiêu đề trùng khớp tên cột thực trong sheet
         if label in df.columns:
             item_cols.append(label)
+        elif key in df.columns:
+            item_cols.append(key)
     item_cols = [c for c in item_cols if c not in preferred]
 
     # Các cột còn lại (phụ / thêm sau)
