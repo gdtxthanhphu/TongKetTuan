@@ -519,3 +519,22 @@ elif role.lower() == "admin":
         save_score_reordered(score_ws, edited, score_header, [TIME_COL, USER_COL, WEEK_COL, CLASS_COL], item_colmap.get("vesinhxaut"))
         st.success("✅ Đã lưu thay đổi.")
         st.rerun()
+st.markdown("""
+<style>
+@media (max-width: 768px) {
+    section.main > div.block-container {
+        padding: 1rem !important;
+        width: 95% !important;
+    }
+    div[data-testid="stSidebar"] {
+        display: none !important; /* Ẩn sidebar trên điện thoại */
+    }
+    h1, h2, h3 {
+        text-align: center !important;
+    }
+    button, input, select, textarea {
+        font-size: 18px !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
