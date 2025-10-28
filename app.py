@@ -227,6 +227,27 @@ def save_score_reordered(ws, df, original_header, core_cols, vesinh_col):
 st.set_page_config(page_title="Tổng Kết Tuần", page_icon="🧮", layout="wide")
 st.markdown("""
 <style>
+/* Giảm kích thước tiêu đề phụ và tiêu đề nhỏ */
+h2, .stMarkdown h2, .stSubheader, .st-emotion-cache-10trblm {
+    font-size: 22px !important;  /* giảm so với mặc định 26px */
+    color: #38BDF8 !important;   /* xanh cyan nhẹ, hài hòa dark mode */
+    font-weight: 700 !important;
+}
+
+/* Giảm kích thước tiêu đề cấp 3 (###) */
+h3, .stMarkdown h3 {
+    font-size: 20px !important;
+    color: #38BDF8 !important;
+    font-weight: 700 !important;
+}
+
+/* Khoảng cách nhẹ hơn giữa tiêu đề và nội dung */
+h2, h3 {
+    margin-bottom: 8px !important;
+    margin-top: 12px !important;
+}
+</style>
+<style>
 /* 🌙 Bật chế độ Dark Mode toàn ứng dụng */
 
 html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], [data-testid="stMain"] {
@@ -471,65 +492,64 @@ if not st.session_state.logged_in:
 
 else:
     # ---------------- Giao diện sau đăng nhập ----------------
-    st.markdown("""
+  st.markdown("""
 <style>
-/* === 🌟 Tiêu đề trung tâm === */
+/* ===== 🌟 Tiêu đề trung tâm ===== */
 .main-title-container {
     text-align: center !important;
-    margin-top: 20px;
-    margin-bottom: 35px;
+    margin-top: 10px !important;
+    margin-bottom: 25px !important;
+    animation: fadeInDown 1.2s ease; /* ✨ Hiệu ứng mượt khi load */
 }
 
-/* Dòng TRUNG TÂM GDNN - GDTX THẠNH PHÚ */
+/* 🌕 Dòng trên: Trung tâm GDNN - GDTX Thạnh Phú */
 .main-title-container h2 {
-    color: #FACC15 !important; /* vàng nhạt */
+    color: #FACC15 !important;   /* vàng nhạt */
     font-weight: 700;
     margin-bottom: 8px;
-    font-size: clamp(16px, 2.5vw, 24px); /* Tự co giãn theo chiều rộng */
+    font-size: 30px !important;  /* to rõ trên desktop */
+    letter-spacing: 0.5px;
 }
 
-/* Dòng ỨNG DỤNG TỔNG KẾT TUẦN */
+/* 💎 Dòng dưới: Ứng dụng tổng kết tuần */
 .main-title-container h1 {
-    color: #FACC15 !important; /* xanh dương đậm */
+    color: #FDE047 !important;   /* vàng sáng hơn */
     font-weight: 900;
     margin: 0;
-    font-size: clamp(22px, 4vw, 48px); /* co giãn theo màn hình */
+    font-size: 52px !important;  /* nổi bật trên desktop */
     line-height: 1.2em;
+    text-shadow: 2px 2px 10px rgba(0,0,0,0.3); /* đổ bóng nhẹ cho đẹp */
 }
 
-/* === 📱 Tùy chỉnh thêm cho điện thoại nhỏ hơn 480px === */
-@media (max-width: 480px) {
-    .main-title-container h1 {
-        font-size: 26px !important;
+/* 📱 Tablet và điện thoại */
+@media (max-width: 768px) {
+    .main-title-container h2 {
+        font-size: 22px !important;
     }
+    .main-title-container h1 {
+        font-size: 32px !important;
+    }
+}
+
+/* 📱 Điện thoại nhỏ hơn 480px */
+@media (max-width: 480px) {
     .main-title-container h2 {
         font-size: 18px !important;
     }
+    .main-title-container h1 {
+        font-size: 26px !important;
+    }
+}
+
+/* 💨 Hiệu ứng hiện dần từ trên xuống */
+@keyframes fadeInDown {
+  0% { opacity: 0; transform: translateY(-20px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 </style>
 """, unsafe_allow_html=True)
 
-    st.markdown("""
-        <style>
-        .main-title-container {
-            text-align: center !important;
-            margin-top: 20px;
-            margin-bottom: 35px;
-        }
-        .main-title-container h2 {
-            color: #FFD700;
-            font-size: 20px;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-        .main-title-container h1 {
-            color: #1E3A8A;
-            font-size: 20px;
-            font-weight: 900;
-            margin: 0;
-        }
-        </style>
-
+  st.markdown("""
         <div class="main-title-container">
             <h2>TT GDNN - GDTX THẠNH PHÚ</h2>
             <h1>ỨNG DỤNG TỔNG KẾT TUẦN</h1>
