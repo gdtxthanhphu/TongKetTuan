@@ -225,6 +225,53 @@ def save_score_reordered(ws, df, original_header, core_cols, vesinh_col):
 # UI
 # =========================
 st.set_page_config(page_title="Tổng Kết Tuần", page_icon="🧮", layout="wide")
+st.markdown("""
+<style>
+/* 🌙 Bật chế độ Dark Mode toàn ứng dụng */
+
+html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"], [data-testid="stMain"] {
+    background-color: #0F172A !important;  /* xanh đen đậm */
+    color: #F8FAFC !important;             /* chữ sáng */
+}
+
+/* 🧩 Khối nội dung */
+section.main > div.block-container {
+    background-color: rgba(255,255,255,0.05) !important;
+    border-radius: 16px;
+    padding: 1.5rem !important;
+}
+
+/* 🧠 Nút bấm */
+div.stButton > button {
+    background-color: #2563EB !important;  /* xanh dương sáng */
+    color: white !important;
+    border-radius: 8px;
+    border: none;
+}
+div.stButton > button:hover {
+    background-color: #1D4ED8 !important;
+    transform: scale(1.03);
+}
+
+/* 📋 Ô nhập liệu */
+input, textarea, select {
+    background-color: #1E293B !important;
+    color: white !important;
+    border: 1px solid #475569 !important;
+}
+
+/* 🔐 Label (Tên đăng nhập, Mật khẩu) */
+label, .stTextInput label, .stPasswordInput label {
+    color: #F8FAFC !important;
+}
+
+/* 🌙 Màu cho tiêu đề */
+h1, h2, h3 {
+    color: #38BDF8 !important; /* xanh cyan sáng */
+}
+</style>
+""", unsafe_allow_html=True)
+
 # CSS riêng cho từng chế độ (login / main app)
 if not st.session_state.get("logged_in", False):
     # ------------------------
@@ -443,7 +490,7 @@ else:
 
 /* Dòng ỨNG DỤNG TỔNG KẾT TUẦN */
 .main-title-container h1 {
-    color: #1E3A8A !important; /* xanh dương đậm */
+    color: #FACC15 !important; /* xanh dương đậm */
     font-weight: 900;
     margin: 0;
     font-size: clamp(22px, 4vw, 48px); /* co giãn theo màn hình */
@@ -557,4 +604,3 @@ elif role.lower() == "admin":
         save_score_reordered(score_ws, edited, score_header, [TIME_COL, USER_COL, WEEK_COL, CLASS_COL], item_colmap.get("vesinhxaut"))
         st.success("✅ Đã lưu thay đổi.")
         st.rerun()
-
