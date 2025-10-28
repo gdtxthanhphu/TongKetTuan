@@ -425,6 +425,44 @@ if not st.session_state.logged_in:
 else:
     # ---------------- Giao diện sau đăng nhập ----------------
     st.markdown("""
+<style>
+/* === 🌟 Tiêu đề trung tâm === */
+.main-title-container {
+    text-align: center !important;
+    margin-top: 20px;
+    margin-bottom: 35px;
+}
+
+/* Dòng TRUNG TÂM GDNN - GDTX THẠNH PHÚ */
+.main-title-container h2 {
+    color: #FACC15 !important; /* vàng nhạt */
+    font-weight: 700;
+    margin-bottom: 8px;
+    font-size: clamp(16px, 2.5vw, 24px); /* Tự co giãn theo chiều rộng */
+}
+
+/* Dòng ỨNG DỤNG TỔNG KẾT TUẦN */
+.main-title-container h1 {
+    color: #1E3A8A !important; /* xanh dương đậm */
+    font-weight: 900;
+    margin: 0;
+    font-size: clamp(22px, 4vw, 48px); /* co giãn theo màn hình */
+    line-height: 1.2em;
+}
+
+/* === 📱 Tùy chỉnh thêm cho điện thoại nhỏ hơn 480px === */
+@media (max-width: 480px) {
+    .main-title-container h1 {
+        font-size: 26px !important;
+    }
+    .main-title-container h2 {
+        font-size: 18px !important;
+    }
+}
+</style>
+""", unsafe_allow_html=True)
+
+    st.markdown("""
         <style>
         .main-title-container {
             text-align: center !important;
@@ -433,20 +471,20 @@ else:
         }
         .main-title-container h2 {
             color: #FFD700;
-            font-size: 22px;
+            font-size: 20px;
             font-weight: 700;
             margin-bottom: 8px;
         }
         .main-title-container h1 {
             color: #1E3A8A;
-            font-size: 42px;
+            font-size: 20px;
             font-weight: 900;
             margin: 0;
         }
         </style>
 
         <div class="main-title-container">
-            <h2>TRUNG TÂM GDNN - GDTX THẠNH PHÚ</h2>
+            <h2>TT GDNN - GDTX THẠNH PHÚ</h2>
             <h1>ỨNG DỤNG TỔNG KẾT TUẦN</h1>
         </div>
     """, unsafe_allow_html=True)
