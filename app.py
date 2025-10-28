@@ -582,12 +582,18 @@ if role.lower() == "user":
         ngay_nhap = st.date_input("Ngày nhập", value=datetime.now().date())
         week = calc_week(ngay_nhap)
         st.text_input("Tuần (tự tính)", value=str(week), disabled=True)
+
         counts, total = {}, 0
-        cols = st.columns(3)
-        for i, (key, label, weight, _) in enumerate(ITEMS):
-            with cols[i % 3]:
-                counts[key] = st.number_input(f"{label} ({weight:+})", min_value=0, step=1, value=0)
-                total += counts[key] * weight
+        for key, label, weight, _ in ITEMS:
+            counts[key] = st.number_input(
+                f"{label} ({weight:+})", 
+                min_value=0, 
+                step=1, 
+                value=0, 
+                key=f"input_{key}"   # 🔑 dòng này đảm bảo không trùng
+            )
+            total += counts[key] * weight
+
         submitted = st.form_submit_button("💾 Lưu / Cập nhật")
 
     if submitted:
