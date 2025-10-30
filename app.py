@@ -5,6 +5,8 @@ from datetime import datetime, date
 import hashlib
 import unicodedata
 import re
+from ai_analysis import init_gemini, summarize_scores
+
 
 # =========================
 # CONFIG
@@ -630,3 +632,31 @@ elif role.lower() == "admin":
         save_score_reordered(score_ws, edited, score_header, [TIME_COL, USER_COL, WEEK_COL, CLASS_COL], item_colmap.get("vesinhxaut"))
         st.success("✅ Đã lưu thay đổi.")
         st.rerun()
+# === PHÂN TÍCH AI BẰNG GEMINI ===
+st.markdown("---")
+st.subheader("🧠 Phân tích AI (Gemini)")
+
+# Nhập module AI và Chat Box
+from ai_analysis import init_gemini, summarize_scores
+from chat_box import init_gemini as init_chat_gemini, render_chat_box
+
+# --- Phân tích dữ liệu bằng AI ---
+if st.button("✨ Tạo nhận xét tự động bằng AI"):
+    init_gemini()
+    with st.spinner("🤖 Đang phân tích dữ liệu..."):
+        summary = summarize_scores(score_df)
+        st.markdown("### 🧾 Nhận xét tổng hợp:")
+        st.write(summary)
+# --- Biểu đồ thống kê ---
+st.markdown("### 📊 Biểu đồ điểm trung bình theo tuần")
+score_df["Tổng điểm"] = pd.to_numeric(score_df["Tổng điểm"], errors="coerce").fillna(0)
+chart_df = score_df.groupby("Tuần")["Tổng điểm"].mean().reset_index()
+st.line_chart(chart_df, x="Tuần", y="Tổng điểm")
+
+# --- Chat Box (AI đọc dữ liệu thật) ---
+st.markdown("---")
+
+from chat_box import init_gemini as init_chat_gemini, render_chat_box
+
+init_chat_gemini()
+render_chat_box(score_df)
