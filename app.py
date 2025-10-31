@@ -7,6 +7,36 @@ import unicodedata
 import re
 from ai_analysis import init_gemini, summarize_scores
 
+# === Utils: ép số + tính tổng ===
+def ensure_columns(df: pd.DataFrame, columns, fill=0):
+    for c in columns:
+        if c not in df.columns:
+            df[c] = fill
+    return df
+
+def coerce_numeric_int(df: pd.DataFrame, cols) -> pd.DataFrame:
+    for c in cols:
+        df[c] = pd.to_numeric(df.get(c), errors="coerce").fillna(0).astype(int)
+    return df
+
+def recompute_total_weighted(df: pd.DataFrame, items, item_colmap: dict, total_col: str):
+    """
+    items: danh sách ITEMS gốc [(key, label, weight, ...), ...]
+    item_colmap: map key -> tên cột trong DataFrame (cmap["ITEMS"])
+    total_col: tên cột Tổng điểm
+    """
+    total = 0
+    for key, label, weight, _ in items:
+        colname = item_colmap.get(key, label)
+        if colname not in df.columns:
+            df[colname] = 0
+        # đảm bảo cột là số nguyên
+        df[colname] = pd.to_numeric(df[colname], errors="coerce").fillna(0).astype(int)
+        # cộng có trọng số
+        total += df[colname] * int(weight)
+    df[total_col] = total.astype(int)
+    return df
+
 
 # =========================
 # CONFIG
@@ -178,50 +208,75 @@ def parse_score(ws):
 # =========================
 # HÀM GHI LẠI SHEET (SẮP CỘT MỚI)
 # =========================
-def save_score_reordered(ws, df, original_header, core_cols, vesinh_col):
+def save_score_reordered(ws, df, original_header, core_cols, vesinh_col, chunk_rows=500):
     """
-    ✅ Ghi DataFrame về Google Sheet với thứ tự cột cố định & tự tạo header nếu sheet trống.
+    Ghi DataFrame về Google Sheet theo thứ tự cột chuẩn.
+    - Ghi header tại A1
+    - Ghi dữ liệu theo từng khối (chunk) để tránh rớt lệnh update lớn.
+    - Có log kích thước, số dòng ghi.
     """
-    # ====== CỘT CỐ ĐỊNH MẶC ĐỊNH ======
-    base_headers = ["Ngày nhập", "Tên Tài Khoản", "Tuần", "Lớp"]
+    import math
 
-    # ====== Danh sách cột theo ITEMS (điểm, vi phạm, thưởng, v.v.) ======
-    item_headers = [label for _, label, _, _ in ITEMS]
-
-    # ====== Cột tổng điểm ======
+    # ====== Header chuẩn theo ITEMS của app ======
+    base_headers  = ["Ngày nhập", "Tên Tài Khoản", "Tuần", "LỚP"]  # <— LƯU Ý: "LỚP" đang đúng theo file của bạn
+    item_headers  = [label for _, label, _, _ in ITEMS]
     total_headers = ["Tổng điểm"]
 
-    # ====== Nếu sheet trống hoặc không có header, tạo header mới ======
-    if df.empty or len(df.columns) == 0:
-        st.warning("⚠️ Sheet 'Score' trống — đang tự tạo tiêu đề chuẩn.")
-        all_headers = base_headers + item_headers + total_headers
+    # Nếu df trống → chỉ ghi header
+    if df is None or df.empty:
         ws.clear()
-        ws.update([all_headers])
+        ws.update("A1", [base_headers + item_headers + total_headers])
         return
 
-    # ====== Chuẩn hóa tên cột trong df để khớp với header chuẩn ======
-    normalized_cols = {N(col): col for col in df.columns}
-
-    def find_col(name):
-        nname = N(name)
-        return normalized_cols.get(nname, name)
-
-    # ====== Dò cột lõi trong df (nếu thiếu thì thêm vào) ======
+    # Đảm bảo đủ cột cho reindex
     for col in base_headers + item_headers + total_headers:
         if col not in df.columns:
             df[col] = ""
 
-    # ====== Xác định lại thứ tự cột ======
-    final_header = [find_col(c) for c in base_headers] + \
-                   [find_col(c) for c in item_headers] + \
-                   [find_col(c) for c in total_headers]
+    # Thứ tự cột cuối cùng
+    final_header = base_headers + item_headers + total_headers
 
-    # ====== Ghi dữ liệu theo thứ tự chuẩn ======
+    # Reindex + ép về str (để viết không lỗi)
+    df_to_write = df.reindex(columns=final_header).copy()
+    # Tránh object lạ gây lỗi cập nhật
+    for c in df_to_write.columns:
+        # giữ số cho cột mục/tổng điểm để nhìn rõ trong sheet
+        if c in item_headers + total_headers:
+            df_to_write[c] = pd.to_numeric(df_to_write[c], errors="coerce")
+        else:
+            df_to_write[c] = df_to_write[c].astype(str)
+
+    rows = df_to_write.values.tolist()
+
+    # ====== Ghi theo khối ======
     ws.clear()
-    data = [final_header] + df.reindex(columns=final_header).astype(str).values.tolist()
-    ws.update(data, value_input_option="USER_ENTERED")
+    ws.update("A1", [final_header])  # header
 
-    st.success("✅ Đã lưu dữ liệu và tự động sắp xếp cột đúng thứ tự.")
+    total = len(rows)
+    # Ghi từ A2 trở đi
+    for start in range(0, total, chunk_rows):
+        end = min(start + chunk_rows, total)
+        block = rows[start:end]
+        # A{2+start} … theo số cột
+        start_row = 2 + start
+        # Tính cột cuối (ví dụ có N cột → cột cuối là index N-1)
+        last_col_idx = len(final_header) - 1
+        # Hàm đổi số → chữ cột (A, B, …, AA…)
+        def col_letter(n):
+            s = ""
+            n += 1
+            while n > 0:
+                n, r = divmod(n - 1, 26)
+                s = chr(65 + r) + s
+            return s
+        end_col_letter = col_letter(last_col_idx)
+        rng = f"A{start_row}:{end_col_letter}{start_row + len(block) - 1}"
+
+        # Ghi khối
+        ws.update(rng, block, value_input_option="USER_ENTERED")
+
+    st.success(f"✅ Đã ghi {total} dòng vào sheet '{ws.title}' theo {math.ceil(total/max(1,chunk_rows))} khối.")
+
 
 # =========================
 # UI
@@ -447,6 +502,26 @@ gc = get_client()
 acc_ws, score_ws = open_sheets(gc)
 acc_df = load_accounts(acc_ws)
 score_df, score_header, cmap = parse_score(score_ws)
+# Lấy tên cột động từ cmap (đúng như trên Sheet)
+CLASS_COL = cmap["CLASS"]      # vd "LỚP" hoặc "Lớp"
+WEEK_COL  = cmap["WEEK"]       # vd "Tuần"
+TIME_COL  = cmap["TIME"]       # vd "Ngày nhập"
+USER_COL  = cmap["USER"]       # vd "Tên Tài Khoản"
+TOTAL_COL = cmap["TOTAL"]      # vd "Tổng điểm"
+item_colmap = cmap["ITEMS"]    # dict: key -> tên cột mục trên Sheet
+
+# Danh sách cột mục (đúng tên cột trên Sheet, theo ITEMS)
+ITEM_COLS = [item_colmap.get(k, lbl) for (k, lbl, _, _) in ITEMS]
+
+# Cột lõi (base)
+BASE_COLS = [TIME_COL, USER_COL, WEEK_COL, CLASS_COL]
+
+# Thứ tự cột cuối cùng dùng cho ép kiểu & ghi
+FINAL_HEADER = BASE_COLS + ITEM_COLS + [TOTAL_COL]
+
+# (tuỳ chọn) kiểm tra nhanh
+# st.write({"BASE_COLS": BASE_COLS, "ITEM_COLS": ITEM_COLS, "FINAL_HEADER": FINAL_HEADER})
+
 
 # ---- LOGIN ----
 if "logged_in" not in st.session_state:
@@ -585,53 +660,156 @@ if role.lower() == "user":
         week = calc_week(ngay_nhap)
         st.text_input("Tuần (tự tính)", value=str(week), disabled=True)
 
-        counts, total = {}, 0
+        counts = {}
         for key, label, weight, _ in ITEMS:
             counts[key] = st.number_input(
-                f"{label} ({weight:+})", 
-                min_value=0, 
-                step=1, 
-                value=0, 
-                key=f"input_{key}"   # 🔑 dòng này đảm bảo không trùng
+                f"{label} ({weight:+})",
+                min_value=0,
+                step=1,
+                value=0,
+                key=f"input_{key}"
             )
-            total += counts[key] * weight
 
         submitted = st.form_submit_button("💾 Lưu / Cập nhật")
 
+    # 👇👇👇 ĐƯA KHỐI NÀY VÀO TRONG NHÁNH USER 👇👇👇
     if submitted:
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        mask = (score_df[CLASS_COL] == class_name) & (score_df[WEEK_COL].astype(str) == str(week))
+        week_str = str(week)
+
+        # Update/Append bản ghi
+        mask = (score_df[CLASS_COL].astype(str) == str(class_name)) & (score_df[WEEK_COL].astype(str) == week_str)
         if mask.any():
             idx = score_df[mask].index[0]
             for key, cnt in counts.items():
                 score_df.loc[idx, item_colmap[key]] = int(cnt)
-            score_df.loc[idx, TOTAL_COL] = int(total)
             score_df.loc[idx, TIME_COL] = now
-            st.success(f"✅ Đã cập nhật tuần {week}. Tổng điểm = {total}")
+            score_df.loc[idx, USER_COL] = st.session_state.username
         else:
             new = {c: "" for c in score_df.columns}
             new.update({
-                CLASS_COL: class_name,
-                WEEK_COL: str(week),
+                CLASS_COL: str(class_name),
+                WEEK_COL: week_str,
                 TIME_COL: now,
                 USER_COL: st.session_state.username,
-                TOTAL_COL: total
             })
             for key, cnt in counts.items():
                 new[item_colmap[key]] = int(cnt)
             score_df = pd.concat([score_df, pd.DataFrame([new])], ignore_index=True)
-            st.success(f"✅ Đã thêm bản ghi tuần {week}. Tổng điểm = {total}")
 
-        save_score_reordered(score_ws, score_df, score_header, [TIME_COL, USER_COL, WEEK_COL, CLASS_COL], item_colmap.get("vesinhxaut"))
+        # ✅ CÁCH 6: Ép số & tính lại Tổng điểm (có trọng số)
+        score_df = ensure_columns(score_df, FINAL_HEADER, fill=0)
+        score_df = coerce_numeric_int(score_df, ITEM_COLS)
+        score_df = recompute_total_weighted(score_df, ITEMS, item_colmap, TOTAL_COL)
+
+        # Hiển thị tổng điểm của dòng vừa thao tác
+        try:
+            total_now = int(
+                score_df[
+                    (score_df[CLASS_COL].astype(str) == str(class_name)) &
+                    (score_df[WEEK_COL].astype(str) == week_str)
+                ][TOTAL_COL].iloc[-1]
+            )
+        except Exception:
+            total_now = 0
+
+        st.success(f"✅ Đã lưu tuần {week}. Tổng điểm = {total_now}")
+
+        # Ghi về Sheet
+        save_score_reordered(
+            score_ws,
+            score_df,
+            score_header,
+            [TIME_COL, USER_COL, WEEK_COL, CLASS_COL],
+            item_colmap.get("vesinhxaut")
+        )
         st.rerun()
+
 
 elif role.lower() == "admin":
     st.subheader("📋 Dữ liệu (Admin)")
-    edited = st.data_editor(score_df, use_container_width=True, num_rows="dynamic", hide_index=True)
-    if st.button("💾 Lưu thay đổi"):
-        save_score_reordered(score_ws, edited, score_header, [TIME_COL, USER_COL, WEEK_COL, CLASS_COL], item_colmap.get("vesinhxaut"))
-        st.success("✅ Đã lưu thay đổi.")
-        st.rerun()
+
+    CLASS_COL = cmap["CLASS"]
+    WEEK_COL  = cmap["WEEK"]
+    TIME_COL  = cmap["TIME"]
+    USER_COL  = cmap["USER"]
+    TOTAL_COL = cmap["TOTAL"]
+    item_colmap = cmap["ITEMS"]
+
+    week_list  = sorted(score_df[WEEK_COL].dropna().astype(str).unique().tolist())
+    class_list = sorted(score_df[CLASS_COL].dropna().astype(str).unique().tolist())
+    sel_week   = st.selectbox("📅 Chọn tuần:",  ["Tất cả"] + week_list)
+    sel_class  = st.selectbox("🏫 Chọn lớp:",   ["Tất cả"] + class_list)
+
+    view_df = score_df.copy()
+    if sel_week != "Tất cả":
+        view_df = view_df[view_df[WEEK_COL].astype(str) == sel_week]
+    if sel_class != "Tất cả":
+        view_df = view_df[view_df[CLASS_COL].astype(str) == sel_class]
+
+    # ✅ Bảng + nút submit phải nằm BÊN TRONG form và được thụt lề
+    with st.form("admin_form", clear_on_submit=False):
+        edited_df = st.data_editor(
+            view_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            key="admin_editor"
+        )
+        save_admin = st.form_submit_button("💾 Lưu thay đổi")
+
+    # ✅ Xử lý lưu vẫn thuộc NHÁNH ADMIN (cùng cấp với with), KHÔNG đưa ra ngoài
+    if save_admin:
+        try:
+            key_cols = [CLASS_COL, WEEK_COL]
+
+            # 0) Chuẩn hoá edited_df
+            work = edited_df.copy()
+            work = ensure_columns(work, FINAL_HEADER, fill=0)
+            for k in key_cols:
+                work[k] = work[k].astype(str).str.strip()
+
+            # 1) Ép số & tính lại Tổng điểm
+            work = coerce_numeric_int(work, ITEM_COLS)
+            work = recompute_total_weighted(work, ITEMS, item_colmap, TOTAL_COL)
+
+            # 2) Cập nhật thời gian
+            now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            work[TIME_COL] = work.get(TIME_COL, "").replace("", now)
+
+            # 3) Cập nhật in-place theo MultiIndex (giữ vị trí cũ)
+            base = score_df.copy()
+            for k in key_cols:
+                base[k] = base[k].astype(str).str.strip()
+
+            base_idxed = base.set_index(key_cols)
+            WRITE_COLS = [c for c in FINAL_HEADER if c not in key_cols]
+            work_by_key = work.set_index(key_cols)[WRITE_COLS]
+
+            base_idxed.update(work_by_key)  # ghi đè key đã có
+            to_add = work_by_key.loc[~work_by_key.index.isin(base_idxed.index)]
+            if not to_add.empty:
+                base_idxed = pd.concat([base_idxed, to_add], axis=0)
+
+            base = base_idxed.reset_index()
+            base = ensure_columns(base, FINAL_HEADER, fill=0)
+
+            save_score_reordered(
+                score_ws,
+                base,
+                score_header,
+                [TIME_COL, USER_COL, WEEK_COL, CLASS_COL],
+                item_colmap.get("vesinhxaut")
+            )
+
+            score_df = base
+            st.success("✅ Đã lưu thay đổi cho phần đang chỉnh!")
+            st.rerun()
+
+        except Exception as e:
+            st.error(f"❌ Lỗi khi ghi dữ liệu: {e}")
+
+
 # === PHÂN TÍCH AI BẰNG GEMINI ===
 st.markdown("---")
 st.subheader("🧠 Phân tích AI (Gemini)")
@@ -647,16 +825,96 @@ if st.button("✨ Tạo nhận xét tự động bằng AI"):
         summary = summarize_scores(score_df)
         st.markdown("### 🧾 Nhận xét tổng hợp:")
         st.write(summary)
-# --- Biểu đồ thống kê ---
-st.markdown("### 📊 Biểu đồ điểm trung bình theo tuần")
-score_df["Tổng điểm"] = pd.to_numeric(score_df["Tổng điểm"], errors="coerce").fillna(0)
-chart_df = score_df.groupby("Tuần")["Tổng điểm"].mean().reset_index()
-st.line_chart(chart_df, x="Tuần", y="Tổng điểm")
+# ===================== BIỂU ĐỒ TÙY BIẾN =====================
+st.markdown("### 📊 Biểu đồ tùy biến theo cột Tuần & Lớp")
 
-# --- Chat Box (AI đọc dữ liệu thật) ---
+# (1) Xác định các cột có thể dùng làm "Tuần"
+num_like_cols = []
+for c in score_df.columns:
+    # ưu tiên cột hiện tại từ cmap
+    if c == cmap["WEEK"]:
+        num_like_cols.insert(0, c)
+        continue
+    # các cột khác có khả năng là tuần: toàn số hoặc số kiểu text phần lớn
+    ser = pd.to_numeric(score_df[c], errors="coerce")
+    if ser.notna().mean() >= 0.7:   # >=70% ép số được
+        num_like_cols.append(c)
+
+# fallback
+if not num_like_cols:
+    num_like_cols = [cmap["WEEK"]]
+
+# (2) Chọn cột Tuần & lớp
+col1, col2, col3 = st.columns([1.2, 1.2, 1])
+with col1:
+    sel_week_col = st.selectbox("🗂️ Chọn cột Tuần", options=num_like_cols, index=0)
+with col2:
+    # danh sách lớp
+    class_col = cmap["CLASS"]
+    all_classes = sorted(score_df[class_col].dropna().astype(str).unique().tolist())
+    sel_classes = st.multiselect("🏫 Chọn lớp", options=["Tất cả"] + all_classes, default=["Tất cả"])
+with col3:
+    agg_mode = st.radio("Gộp", ["Mean", "Sum"], horizontal=True, index=0)
+
+# (3) Chuẩn bị dữ liệu
+df_chart = score_df.copy()
+df_chart[sel_week_col] = pd.to_numeric(df_chart[sel_week_col], errors="coerce")
+df_chart = df_chart.dropna(subset=[sel_week_col])
+df_chart[sel_week_col] = df_chart[sel_week_col].astype(int)
+
+total_col = cmap["TOTAL"]
+df_chart[total_col] = pd.to_numeric(df_chart[total_col], errors="coerce").fillna(0)
+
+# Lọc lớp (nếu không chọn "Tất cả")
+if "Tất cả" not in sel_classes:
+    df_chart = df_chart[df_chart[class_col].astype(str).isin([str(x) for x in sel_classes])]
+
+# (4) Gộp theo tuần & lớp → có thể vẽ so sánh nhiều lớp
+how = "mean" if agg_mode == "Mean" else "sum"
+if how == "mean":
+    grp = df_chart.groupby([sel_week_col, class_col], as_index=False)[total_col].mean()
+else:
+    grp = df_chart.groupby([sel_week_col, class_col], as_index=False)[total_col].sum()
+
+# pivot: hàng = tuần, cột = lớp
+pivot = grp.pivot(index=sel_week_col, columns=class_col, values=total_col).sort_index()
+
+# (5) Tùy chọn làm mượt (rolling) & loại bỏ cột trống
+roll = st.slider("📐 Trung bình trượt (tuần)", 1, 7, 3, help="Chọn 1 để tắt làm mượt")
+if roll > 1:
+    pivot = pivot.rolling(roll, min_periods=1).mean()
+
+pivot = pivot.dropna(axis=1, how="all")  # bỏ lớp không có dữ liệu
+
+# (6) Vẽ biểu đồ
+if pivot.empty:
+    st.info("Chưa có dữ liệu phù hợp để vẽ.")
+else:
+    st.line_chart(pivot, use_container_width=True)
+    cap_class = "Tất cả lớp" if "Tất cả" in sel_classes else ", ".join([str(x) for x in sel_classes])
+    st.caption(
+        f"Trục X: {sel_week_col} • Dữ liệu: {agg_mode} {total_col} • Lớp: {cap_class} • "
+        f"Rolling: {roll} tuần."
+    )
+
+
+# --- Chat Box (AI đọc dữ liệu thật theo lớp) ---
 st.markdown("---")
+st.subheader("💬 Trò chuyện cùng Trợ lý AI (Gemini)")
 
 from chat_box import init_gemini as init_chat_gemini, render_chat_box
 
+# 🔹 Khởi tạo Gemini
 init_chat_gemini()
-render_chat_box(score_df)
+
+# 🔹 Lọc dữ liệu theo lớp đang đăng nhập
+if role.lower() == "user":
+    # Giáo viên chỉ xem dữ liệu lớp mình phụ trách
+    class_data = score_df[score_df[CLASS_COL].astype(str) == str(class_name)]
+else:
+    # Admin xem toàn bộ
+    class_data = score_df  
+
+# 🔹 Truyền dữ liệu lớp cụ thể vào AI
+render_chat_box(class_data)
+
