@@ -30,5 +30,6 @@ weights = {
     "Điểm 10": +5,
     "Tiết học tốt": +50,
     "Điểm cộng": +1,
+    "Điểm trừ":-1,
     "Điểm thưởng": +1
 }
