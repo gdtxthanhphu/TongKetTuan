@@ -41,7 +41,7 @@ def recompute_total_weighted(df: pd.DataFrame, items, item_colmap: dict, total_c
 # =========================
 # CONFIG
 # =========================
-SPREADSHEET_ID = "1Ahv3CNsRvT0N5s-te8o3xkfwATbFuhAENpX0xoqM3Sw"
+SPREADSHEET_ID = "12c6Oa3H9hqJwI9wkZIQw_pAby2oONqc_14CU4A2KqMo"
 SERVICE_FILE = "service_account.json"
 USE_HASHED_PASSWORDS = False
 SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
@@ -64,41 +64,21 @@ def N(x: str) -> str:
     x = x.lower()
     x = re.sub(r"[^a-z0-9]+", " ", x).strip()
     return x
+# ====== Danh sách mục và điểm: lấy từ score_weights.py ======
+from score_weights import weights as SCORE_WEIGHTS  # dict {label: weight}
 
-# ====== Danh sách mục và điểm ======
-ITEMS = [
-    ("vesinhxaut", "Vệ sinh chưa tốt", -5, ["ve sinh chua tot"]),
-    ("cobachutthuoc", "Cờ bạc, hút thuốc, uống rượu, bia", -20, ["co bac","hut thuoc","ruou bia"]),
-    ("cuptiet", "Cúp tiết, SHDC, SHL", -5, ["cup tiet"]),
-    ("nonbh", "Không đội nón bảo hiểm hoặc sai quy cách", -5, ["non bao hiem","sai quy cach"]),
-    ("tocdai", "Tóc dài hoặc cắt kiểu không phù hợp", -2, ["toc dai","cat kieu"]),
-    ("viphampl", "Vi phạm pháp luật ( ATGT, ANTT,…..)", -20, ["vi pham phap luat"]),
-    ("viphamkt", "Vi phạm kiểm tra", -5, ["vi pham kiem tra"]),
-    ("phahoaists", "Phá hoại tài sản", -20, ["pha hoai tai san"]),
-    ("vole", "Vô lễ, đánh nhau", -20, ["vo le","danh nhau"]),
-    ("dtdd", "Sử dụng điện thoại trong giờ học", -3, ["dien thoai"]),
-    ("nghikhongphep", "Nghỉ học không phép", -4, ["nghi hoc khong phep"]),
-    ("viphamht", "Vi phạm học tập", -3, ["hoc tap"]),
-    ("mattrattu", "Mất trật tự", -3, ["mat trat tu"]),
-    ("nhuomtoc", "Nhuộm tóc, son môi, sơn móng", -3, ["nhuom toc","son moi"]),
-    ("noituc", "Nói tục", -3, ["noi tuc"]),
-    ("ditre", "Đi trễ", -2, ["di tre"]),
-    ("khongdongphuc", "Không đồng phục, phù hiệu, huy hiệu", -2, ["dong phuc","phu hieu"]),
-    ("diconggv", "Đi cổng giáo viên, bỏ ra khỏi Trung tâm", -2, ["di cong giao vien"]),
-    ("chayxe", "Chạy xe trong sân, để xe sai quy định", -2, ["chay xe","de xe"]),
-    ("deplao", "Mang dép lào", -2, ["dep lao"]),
-    ("nghicophep", "Nghỉ học có phép", -1, ["nghi hoc co phep"]),
-    ("diem8", "Điểm 8", +3, ["diem 8"]),
-    ("diem9", "Điểm 9", +4, ["diem 9"]),
-    ("diem10", "Điểm 10", +5, ["diem 10"]),
-    ("tiethoctot", "Tiết học tốt  (đạt/tổng đăng ký)", +50, ["tiet hoc tot"]),
-    ("khongphongtrao", "Không tham gia các hoạt động phong trào (Mỗi tuần một câu chuyện hay...)", -20, ["khong tham gia phong trao"]),
-    ("diemcong", "Điểm cộng", +1, ["diem cong"]),
-    ("diemthuong", "Điểm thưởng", +1, ["diem thuong"]),
-]
+def make_items_from_weights(weights_dict):
+    items = []
+    for label, w in weights_dict.items():
+        # key ngắn dựa trên tên đã chuẩn hoá bằng N()
+        key = N(label).replace(" ", "")
+        # candlist dùng cho map cột cũ -> cột chuẩn
+        items.append((key, label, int(w), [N(label)]))
+    return items
 
+ITEMS = make_items_from_weights(SCORE_WEIGHTS)
+TOTAL_HEADER_CANDIDATES = ["tong diem", "tongdiem", "tổng điểm"]
 
-TOTAL_HEADER_CANDIDATES = ["tong diem","tongdiem","tổng điểm"]
 
 # =========================
 # =========================
@@ -117,7 +97,6 @@ def get_client():
     try:
         if os.path.exists("service_account.json"):
             # chạy local (trên máy tính)
-            
             return gspread.service_account(filename="service_account.json", scopes=SCOPES)
 
         elif "google_service_account" in st.secrets:
@@ -209,38 +188,25 @@ def parse_score(ws):
 # HÀM GHI LẠI SHEET (SẮP CỘT MỚI)
 # =========================
 def save_score_reordered(ws, df, original_header, core_cols, vesinh_col, chunk_rows=500):
-    """
-    Ghi DataFrame về Google Sheet theo thứ tự cột chuẩn.
-    - Ghi header tại A1
-    - Ghi dữ liệu theo từng khối (chunk) để tránh rớt lệnh update lớn.
-    - Có log kích thước, số dòng ghi.
-    """
     import math
-
-    # ====== Header chuẩn theo ITEMS của app ======
-    base_headers  = ["Ngày nhập", "Tên Tài Khoản", "Tuần", "LỚP"]  # <— LƯU Ý: "LỚP" đang đúng theo file của bạn
+    # core_cols = [TIME_COL, USER_COL, WEEK_COL, CLASS_COL] do bạn truyền vào khi gọi
+    base_headers  = list(core_cols)
     item_headers  = [label for _, label, _, _ in ITEMS]
-    total_headers = ["Tổng điểm"]
+    total_headers = [TOTAL_COL]  # TOTAL_COL lấy từ cmap sau parse_score
 
-    # Nếu df trống → chỉ ghi header
     if df is None or df.empty:
         ws.clear()
         ws.update("A1", [base_headers + item_headers + total_headers])
         return
 
-    # Đảm bảo đủ cột cho reindex
     for col in base_headers + item_headers + total_headers:
         if col not in df.columns:
             df[col] = ""
 
-    # Thứ tự cột cuối cùng
     final_header = base_headers + item_headers + total_headers
 
-    # Reindex + ép về str (để viết không lỗi)
     df_to_write = df.reindex(columns=final_header).copy()
-    # Tránh object lạ gây lỗi cập nhật
     for c in df_to_write.columns:
-        # giữ số cho cột mục/tổng điểm để nhìn rõ trong sheet
         if c in item_headers + total_headers:
             df_to_write[c] = pd.to_numeric(df_to_write[c], errors="coerce")
         else:
@@ -248,41 +214,33 @@ def save_score_reordered(ws, df, original_header, core_cols, vesinh_col, chunk_r
 
     rows = df_to_write.values.tolist()
 
-    # ====== Ghi theo khối ======
     ws.clear()
     ws.update("A1", [final_header])  # header
 
     total = len(rows)
-    # Ghi từ A2 trở đi
     for start in range(0, total, chunk_rows):
         end = min(start + chunk_rows, total)
         block = rows[start:end]
-        # A{2+start} … theo số cột
         start_row = 2 + start
-        # Tính cột cuối (ví dụ có N cột → cột cuối là index N-1)
-        last_col_idx = len(final_header) - 1
-        # Hàm đổi số → chữ cột (A, B, …, AA…)
+
         def col_letter(n):
-            s = ""
-            n += 1
+            s = ""; n += 1
             while n > 0:
                 n, r = divmod(n - 1, 26)
                 s = chr(65 + r) + s
             return s
-        end_col_letter = col_letter(last_col_idx)
+
+        end_col_letter = col_letter(len(final_header) - 1)
         rng = f"A{start_row}:{end_col_letter}{start_row + len(block) - 1}"
-
-        # Ghi khối
         ws.update(rng, block, value_input_option="USER_ENTERED")
-
-    st.success(f"✅ Đã ghi {total} dòng vào sheet '{ws.title}' theo {math.ceil(total/max(1,chunk_rows))} khối.")
 
 
 # =========================
 # UI
 # =========================
 st.set_page_config(page_title="Tổng Kết Tuần", page_icon="🧮", layout="wide")
-st.markdown("""
+st.markdown(
+"""
 <style>
 /* Giảm kích thước tiêu đề phụ và tiêu đề nhỏ */
 h2, .stMarkdown h2, .stSubheader, .st-emotion-cache-10trblm {
@@ -348,14 +306,17 @@ h1, h2, h3 {
     color: #38BDF8 !important; /* xanh cyan sáng */
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+unsafe_allow_html=True,
+)
 
 # CSS riêng cho từng chế độ (login / main app)
 if not st.session_state.get("logged_in", False):
     # ------------------------
     # 🧩 Giao diện đăng nhập
     # ------------------------
-    st.markdown("""
+    st.markdown(
+        """
         <style>
         section.main > div.block-container {
             display: flex;
@@ -427,12 +388,15 @@ if not st.session_state.get("logged_in", False):
             transform: scale(1.05);
         }
         </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 else:
     # ------------------------
     # 🌟 Giao diện chính sau đăng nhập
     # ------------------------
-    st.markdown("""
+    st.markdown(
+        """
         <style>
         /* Cho phép phần nội dung chính hiển thị toàn màn hình */
         .block-container {
@@ -456,12 +420,15 @@ else:
         }
 
         </style>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 # =========================
 # GIAO DIỆN: PHÓNG TO CHỮ & CỐ ĐỊNH CỘT
 # =========================
-st.markdown("""
+st.markdown(
+    """
     <style>
     html, body, [class*="css"] {
         font-size: 18px !important;
@@ -492,7 +459,9 @@ st.markdown("""
         padding: 6px 8px !important;
     }
     </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 # =======================
 # 
@@ -513,7 +482,7 @@ item_colmap = cmap["ITEMS"]    # dict: key -> tên cột mục trên Sheet
 # Danh sách cột mục (đúng tên cột trên Sheet, theo ITEMS)
 ITEM_COLS = [item_colmap.get(k, lbl) for (k, lbl, _, _) in ITEMS]
 
-# Cột lõi (base)
+# Cột lõi (base) — dùng đúng thứ tự sẽ ghi ra sheet
 BASE_COLS = [TIME_COL, USER_COL, WEEK_COL, CLASS_COL]
 
 # Thứ tự cột cuối cùng dùng cho ép kiểu & ghi
@@ -569,7 +538,8 @@ if not st.session_state.logged_in:
 
 else:
     # ---------------- Giao diện sau đăng nhập ----------------
-  st.markdown("""
+    st.markdown(
+        """
 <style>
 /* ===== 🌟 Tiêu đề trung tâm ===== */
 .main-title-container {
@@ -624,14 +594,19 @@ else:
   100% { opacity: 1; transform: translateY(0); }
 }
 </style>
-""", unsafe_allow_html=True)
+""",
+        unsafe_allow_html=True,
+    )
 
-  st.markdown("""
+    st.markdown(
+        """
         <div class="main-title-container">
             <h2>TT GDNN - GDTX THẠNH PHÚ</h2>
             <h1>ỨNG DỤNG TỔNG KẾT TUẦN</h1>
         </div>
-    """, unsafe_allow_html=True)
+    """,
+        unsafe_allow_html=True,
+    )
 
 # ---- MAIN ----
 role = st.session_state.role
@@ -662,13 +637,15 @@ if role.lower() == "user":
 
         counts = {}
         for key, label, weight, _ in ITEMS:
-            counts[key] = st.number_input(
-                f"{label} ({weight:+})",
-                min_value=0,
-                step=1,
-                value=0,
-                key=f"input_{key}"
-            )
+                default_val = 200 if label.strip().lower() == "điểm cộng" else 0
+                counts[key] = st.number_input(
+                    f"{label} ({weight:+})",
+                    min_value=0,
+                    step=1,
+                    value=default_val,       # mặc định riêng cho “Điểm cộng”
+                    key=f"input_{key}"
+        )
+
 
         submitted = st.form_submit_button("💾 Lưu / Cập nhật")
 
@@ -697,7 +674,7 @@ if role.lower() == "user":
                 new[item_colmap[key]] = int(cnt)
             score_df = pd.concat([score_df, pd.DataFrame([new])], ignore_index=True)
 
-        # ✅ CÁCH 6: Ép số & tính lại Tổng điểm (có trọng số)
+        # ✅ Ép số & tính lại Tổng điểm (có trọng số)
         score_df = ensure_columns(score_df, FINAL_HEADER, fill=0)
         score_df = coerce_numeric_int(score_df, ITEM_COLS)
         score_df = recompute_total_weighted(score_df, ITEMS, item_colmap, TOTAL_COL)
@@ -745,7 +722,7 @@ elif role.lower() == "admin":
     if sel_week != "Tất cả":
         view_df = view_df[view_df[WEEK_COL].astype(str) == sel_week]
     if sel_class != "Tất cả":
-        view_df = view_df[view_df[CLASS_COL].astype(str) == sel_class]
+        view_df = view_df[view_df[CLASS_COL].astype(str).isin([sel_class])]
 
     # ✅ Bảng + nút submit phải nằm BÊN TRONG form và được thụt lề
     with st.form("admin_form", clear_on_submit=False):
@@ -917,4 +894,3 @@ else:
 
 # 🔹 Truyền dữ liệu lớp cụ thể vào AI
 render_chat_box(class_data)
-
